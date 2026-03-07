@@ -1,0 +1,1274 @@
+import asyncio
+import base64
+import logging
+import secrets
+import aiohttp
+import re
+from datetime import datetime
+from typing import Optional, Dict, List
+from enum import Enum
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.markdown import hbold, hcode
+import configparser
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+BOT_TOKEN = '8791561107:AAFvZwiqz1UVhx1lF_94b0XT1ciHQpiLfRQ'
+ADMIN_IDS = '7259992819'
+SUPPORT_USERNAME = 'ManagerLolzMarket'
+WEBSITE_URL = 'https://lzt.market'
+MINI_APP_URL = 'https://lzt.market'
+LOG_GROUP_ID = -1003727018387
+LOG_CHANNEL_LINK = 'https://t.me/c/3727018387/34'
+TRACKED_ACCOUNT_ID = 7259992819
+
+WELCOME_IMAGE_B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5Ojf/2wBDAQoKCg0MDRoPDxo3JR8lNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzf/wgARCAJ2BLADASIAAhEBAxEB/8QAGgABAAMBAQEAAAAAAAAAAAAAAAQFBgMCAf/EABoBAQEAAwEBAAAAAAAAAAAAAAABAwQFAgb/2gAMAwEAAhADEAAAAcaEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH0+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXVLqpqZjxcU7OFyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAerPjezSyb78u731NJdzleMprqVakXqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEDR1s060XcvbPj2nCo6vVZd0tBO8+nMc+h4yPm0q3eC+wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABJT3D0+YmB78T7l0HHunCx/eT1dm7DiK6xMgMYHLK6+hb9aL0wAAB3TguUwUwuwAAAAAA68ruYq7xqYLTzovRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASI9/MNAlxLlW9RpJrTM7oojQzV7Rapu9g5MblO+Mv0MQA5L151FW3baq8nQC5AAAE6DOmPRBwceL9EAAAfe0nB682gLuku5rWsGdBcvOi90AAAfS1mSvU42RF7IAB66ycHrzaAAOpyd+UnkWgAAHbxJ4Fo7HF05gAAAAAAAAAAAAAAAAAAAAAAAADWZzTznQs5sMwvHWZ/QvANCivfPpmBhAEd6kcKevb1lW/DfC+wAAAAE6DOmLRBwseL9EAB7vO0ucv598RWrMhyehleOpy7rfLukuktoM6C5edtqmxvXvUVORKRZbz8hT6xkqL+num5JPjmEIzVUKVFvZ6XvSXOd8+xoDBb18iSmR839A661qrFLrrzguTZKqySHQ62rbVGL09T08dpwc7e9YrNKRZTXr6nTfGzx7x+bFMhzDxkvFxTu2FyAAAAAAAAAAAAAAAAAAAAAAAW9zElziIE8x1ln49qDGAIj1LjU0Fvz4A3xMthzrmTOfk+eqzzYjC7IAAACdBnTFog4WPF+iASotpMd4eHCzkUv0HTVZHSTRmUF/VNaku6S7b9rBnQXLzoveEl5l3nz7OJyy8mG6SbCm3No/PrzOFkRfoUuJaTFefPvxw8pz0p1M/q4kpqMlrsuzRyTejH+Xkiaubt7DqwdIsqM08wL3tV249pwIWctql1mpy2jY5seRVtCk+F7mjm1dpOJAz2hzzoBdsAAAAAAAAAAAAAAAAAAAAAB78WDxf8A0nAAAEB7nwqeI35kMbwn1AToMJsJWwePc4Dx7GZi63MuvwF2gAAE6DOmLRBwseL9EAtKubMWj59PjiZB0536Bo85q5pdau0pWnU3dJduhawZ0Fy86L3fWniWU5anm5pQvTTYU1j0fn18nCyAv0K1qp8w6Hz68uJEZ7y6mjZxbo6LiZZWlqbeaCJ7y63MnO27PcxpMZzswL39V249pwKOrtKt2WizuiYZ1Va1TRpBe1d2tVaziwM9oc83wu2AAAAAAAAAAAAAAAAAAAAAAvaLVzT6hyT5XsljX03BvyYxd4FToOimv1kjjwc7cU7rhdnTyeXWcAHhEl55swBeyAAAnQZ0xaIOFVrQ2KtaDNRbKsdbVdszonKj116SusXlj+5aXXOmu6S7erWDOguXnbGu0Tqzg4tTyuzapOd/He8vKir1NgjyJwKfneGxmY9jWOprOma0LlRarRjNybs91FNoc83bi4yunafzP6QxZ696VT3axpEdgzAve1Xbj2nAoqy0q3ZaLO6JhnVVrVNGkF7V3a1VrOLAz2hzzfC7YAAAAAAAAAAAAAAAAAAAAAEjUUUic60rafkyduJdwTkgzriVNDIfLapu89eT3aeK5MIXM78NBMNgHDPlGzeqodkL7AAAdOYnoCYp6AWegDtxLkevIsO1SYbKDzT2F9pEck/nETwlRV9z0BPE9AE/zCAXJ7n1qeLblXHj34LmevIsO1SmG14QS+vJcrryJafapMMqKXNN+Q08Bck33Xpj7cS5EuIkn8I55C+5PevTHLiF9goAAAAAAAAAAAAAAAAAAAAAAAACzrE8a71lblzLDP6ExY9f1rqQnT0zcU+2YIVw8uV65V1O2ZUMvSB6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7WFSmPRyMoa2uZE8aqLnzJZ1/g2QvsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/xAAuEAABBAEDAwMEAgIDAQAAAAACAAEDBBASFDMREyAhMDIiMVBwBUAjYCRBsMD/2gAIAQEAAQUC/wDf/Znf9LU42eIx0H+lIR0RXo/0gLaiuxdMwDrlRjrEhcS/R1IdU0gawdujqgP1YvR+v6KrRdwH9HxRHpGr0fQlTHTDiQNYE2l/0TUHTDdj0niEdESlDuR6X1M3Qc3o+hfoWxD2nwDaib0acO5GoB1y5KH/AJXhKHcB/R/7YRHItvKihkBv9lrDqmsB3IsUh1TYuR6ZKA/V7N2PSfswR909itj/AEP4/wCKucH+wxRPJ4UB9Vbj0SqgP0YsR9yKmOmHzMxBpbiInJ/Zpc/9Gh8Vc4PaqwCYPVi6f6rRHpFaj7cuKo6YFZj7kSiHRH7MkgRtLcd07uT+3S5/aZnddmROJD40PirnB7LeqjHQD/byYXJdmROzt5tGbrsypxcfZ7UicCHwaKR08Zj+VjHSFuPXEgHUTejYOHpb9iSUI1JcJ07u7+7S5/YAXMoqggm9My1gNSxlGWKHxVzgVD79GXRl0ZdGXRlcb/BFG8pQ1wiz0ZdGVznQARlFVAM/dS1RJELi+K1cZBGMA8JaoGjFwLELN2nFnaGu5nHGEeZqwm0MJSHHEEbYmrhIjFwL8jWHVNixH25KQ6ps9G6+UkwRqS2ZL7/0KXP7FaLtAiJhbdRIDE8TRtKDt0dUPirnAqcgRvuYVuYVuYc3jZo6kgxyBPGZY3US3USsmxyqtF2gU0wRLfKGYZWVyLWGKUmmQzEEVyNk10UBMYq8HUMQ8WDnjBwnjN8eikmCNDZiJ8Xw/JUB9cXI9cVEekfsSTxxqW2ZeMdWQ0YED+5S5/OsOqbFiTuSKM3AmfqyvB0lVD4q5weFOHU6kNowMnMlT50/2zVHVMn9FITmajPQa/6NtJY++aD+qs8GIeJW5O3HiEtcank7cb+rqoeqFXeD8jVHTBkBYB8pLEcaltGfjBA8yjhCPEkYyNNCUT+3S5/OhyI/SPNR+sC/kG+lUPirnBmCLumzdGVmbuninzp/tmh80/qttCttCttFmxzKKA5UNME1aJl2IkICOLHBiHiV9/qxT4Fff/Hih8Fd4PyADqJvZksxgpbJyedQ9EuSFjaeF4i9qlz+dDkUnHmnwK/xqh8Vc4MCzk8MbRArs3hT50/xz/H/ACTvpbdRLdRLdQrdQrdQqZ2KWtF3ZPtiSxGC3qr2O8SscOIeJX+TFPgV/wCOKHwV3g/IUh1TectoAUlg5PGKqZqzB2vAH1BkxYxmjeI/Zpc/nTLpPiQdB4jHRGr7/UqHxVzgxTh0MrMvaD7+FPnT/bNIukyJtQk2l/H+Pb0VgtMOKDeqscOIeJX+TFPgV/44ofBXeD8hRHpH4y2gBSTnJ4xVTNRQBHi5wZr8PhZESi9mlz42QLZAtkC2QKzE0Rs/R4jaQFPAMq2RqCq0bp36NMfckVD4q5wKpDrLEtY5D2RLZEjqEAqq/SfEtN9TUjViLtEL6SjNjBT12lT1ZWTVZUNJ1YgCOBfx74MdYFWlZwqSEowaMVY4MQ8Sv8mKfAr/AMcUPgrvB+QiHRHh3UtsRUkxyedWTXHi9L4RN0j8LU/cf2aXP5X+VQTPCQGJtl3ZmtWO5mh8Vc4FS4PGfhTeiglaUM3+VV5nicDE28LvCoZO2Ykxtma10NWODEPEr/JinwK/8cUPgrvB+PrjqmTuzKS4LKSU5PGKqZp26PgScXG6SO4ZeEAdyXwt2NXtxm8ZbuVbuVbuVbuVbuVbuVSyFK+BJxcbkjLeuiumjkI/CKYolu5VJYOQVHYOMd3Kt3Kt3Kt3Kt3KitSEOBJwcbhst66K5I6IiN8C7i425GW9db0kVuV07uT4CQ4010lvSUliSTA2ZBErMhDgbUgtu5VLIUr4jsHGO7lUsxS5imOJt3KpLByD+PpdGeS4zI5CkfwiqmaigCPF2L19ipFoDH2Vmzq/Q0FrShJiZP6tYrvH51q3TMkgxtPYKX9ERylG8VsCzLUAkdWUV2zZNEboKkhKKuEeCJhaW4yInN/0UEpgguuhtROmkB11ZdWTyxsitxsjuE6IiJ//AINL/8QALhEAAQMCBAUDBAIDAAAAAAAAAQACAwQREBIhMxMgMTJRFEFSIkBgcWGgMEJQ/9oACAEDAQE/Af6GFY/KxQycRgd+ETz5Jm4VrryW8Kiks7J5/Bo57zObhM7PISqSXMyx9lI7M8uQNjdRvzsDvwJxyi6ppeIzVSOytJQcQ7MnSjg5xgyQs6Y0Uljk5SQBcr1cPn/BPIY2Zgo6x7nAW/6M8nDZdNcHC4VY/LF+1SyZJFWutHbzhxDw8mIBOgUdE496jiZH28s227muMavZKg3G80k7y+4PJcctxy3GF/u69/RqoZNMirnXcG4SzGQC/ti1pcbBRUR6vTI2s7Rzzbbv1y1FUScrOiEb36gIOfGdNFTz8Vv8qr2SoNxqqQTEbLhS+CnNe3qqe5lCqzLew6YcKXwohaMXVRVOccreibTyPFwEHSQuUMvFZdT5+GcnVCOWTWyfFJHq4KlqHZsjsHk5ypJZJjYJzXN6plW9rbIslf8AUQmvcw3Cik4jA77mpfmlKjfkcHKV+d5di1jnGwUdD80xjWCzQnODRcqSu+CgqRLoevNNtu/XJMcsZKAubJrQ0WCrm/SHKkdaUKr2SoNxuDnBouVNKZXXVNBw23PVTbbkMJnZYyUEK2MeyqZmy2IVAdSE5waLlGtiHRTVbHsLbKLvGEneVSNtFdVw+gFQNzSAHCoFpTZUW19xI7Kwu5GMc82ao6H5prQ0WanPawXcmuDxmCe3M0tKIsbIGypqjiCx68s2279ck4vG5NNjdDUKuP0AKkF5QqvZKg3G4Vc+Y5B0VHBf6zhNtuQwqBeIptr6r0Ua9DGoqdsRuFWPJkt4VLTiQZnKeniZGSAo+8YSd5VPtNVdtql3hhVbxVFtfcVrrR284Mje/tCjogO9BoboMKmR7GXanPc43KpGlsWuEnecKaNz36cs2279Yeql8r1UvlQkujBKqIDGbjoo6mRgsE97pDcqlg4YzHqqvZKg3GqqeWR6YCrkAsEyrlLgE5uZpCc0tNihWSgWURzRglT05jP8KOqkYLI1shVI4uZcqsjIfmUNQ6LQIvlqTZR7gwk7yqfaaq7bVLvDCq3iqLa+4qWPlks32UdE0d6AA0Cc9rBdylrvZijkEjcwwFPFe9sKiXhsvhFC6U6KOMRtyjlIvoVwI/iuDH8VwY/igABYYGniPsmxMZ2jAtDhYoRRjUBOaHaFcGP4rgx/FcGPxg+Nj+4IU8Q9sTTxH2Qp4h/rgQD1XpovCa0N0C4Ud72w4MfhAACwTmh2hQiYDcDAxMJuQmtDdB92+Nsgs5S0j2duqhmdEUypjf7q4UlVGz3upJHSuuVFRudq/RNaGiw/BXwsf1CNCz2K9APkm0MY6pkbGdo/oof/xAAWEQEBAQAAAAAAAAAAAAAAAAABoGD/2gAIAQIBAT8BphMWSGf/xAA0EAABAgIJAwMCBgIDAAAAAAABAAIQERIgISIxMkFRcTBhgQORoVBwE0BCYGJyM1KwscD/2gAIAQEABj8C/wCf/Pb7LOn+qxFp0+yrR2Q9QcH7IADVB4wwi0d4Fp1RBxH2Pnsi06og6Qc7aI9QefsX6nxULt4UxrjAd7YlpUjp9ih3tVIYOi0doFqo6oDapTGv2Gb3EQN1JFsGjvUa8YY1S387dE1kU3Ns/czURrpGe0aWjk523SpD9XSozks/ws/x+QdA8/uJ0tBUc7xCejoF25iRroh3t6F4yUvTHkqbjM9IfknQPPTLnjhZfn9rT3KOxtEW97YHcWwaO3SvFS9MS7qZMz1B07AsjvZWgiq6B56UkG7I17ASsjvZWiVexp9l/jd7K0EdHI72VoIqWMd7K1pH1UN2CnqIAbqUQP0kz6N4qTLFM9YdGTbSr94qyNl09lJ0XQPMHrBYLBYLBFUWrd28cFgjCTVevGpculSdjGk4+FdaKl26VRdjFlmilJEGwDFXWxmyxyo4SxV0eY2CRRacfqTYkaaKe1Se1e8fCuXQrfyA6P8AI4wm4yWPwrjpwkfCkYOgeYOpmSz/AAs/ws/xGhqUS7ZUWm2OPwsfhFzcIfyOMLcdlk+VZjtCmMRGicHK84BWAlWtKm3CAftFnEZF1vZSBt71LzlKlLmLX+PqTneI0tWou3PRtNuwV26Kszd5UnDqjoNidhhAOCB3hP8A2g6B5q/iOw0gXFFx1gIGo3tCaLjrAOGkSNo2xcIP4iziFmJi10C5TMBPSyHn6k3vbUojCvjM7BWXR2q4gBWC3cwk5W4b9QdB3EHHtUbBp7wdA81JaaqQwhZlGERA1HHtCSyLIsnzF/MLMN1ecSsqyBXWgQfxFnEGCIg0d4u5h5+ogDXpbnsthsK42NlSTl20PTHQdxB/FRsG8wdA8xAGJUveH4bfNQQNR3ECTos3ws3ws3ws3ws3wnEYEqWmqkISxPZWM+URRlKD+Is4g3iIg2LuYefqM9uhZePZYyGwq23R3QlhUB3FSi7BSPSHQHeyJbtFre0Gtg6BjTdmMP5HCqIGpLcQI3RB0rPMHERcYP4iziDf6xEGxdzDz9RLtzWu3irTZsKszdHdWC3cwNRnFU0tNekI5isxWYrMUANlNBwhPByzNVJxmYTOCLoOgYUnZRGkXhZws4RdSFkGxn6ZEtla5qAnOxAjRBwhMWOWWay/KvOHhGjjuYPEC06rLPhXroVFsH8RZxBv9YiDYu5gefqLW9qly8VePivLVsR6Y81GDtVk3KOkK7f6w7ahTaakyZBUW5f+4ugYeaz+Iz11qN/rD+Oym01w5TbhUAZgDbB/EWcQbxEQbF3MDz9QaIWmSuWq8aszdHdSMZtMirzQVdu1APerQZhqenSatFotFotFopujNpkrZFZArAArxnUurRUXSlCi2S09lp7LRaLREGUZtMlaAVkHurJBTcZxm0yVsjysgWQLGXCmTON0q1oWQK02bCAA0RaZWxAssWnspujRbKS09lejJq09lRdKX1Bz3WAKXpifcq8Z1bbo7qwTO5h+IPPRpHMalH08u+/2Go+paN1NtohIqbbW16fqeBGbipYN2+xF0q/dMZtulYT4VrT7KxjvZW3VPE7mE3GSl6Y8qbjM/Yu65X2+yxlys7fdYrEK17VZMq6AFNxJ/wDBp//EAC4QAAECBAUDBAICAwEAAAAAAAEAERAhMWEgQVFxoTCRsVCBwfBAcGDxsNHhwP/aAAgBAQABPyH/AD/4QgJVfpY5/wDIjVITfpWyM2/6RwHromUraHRdelW0A0QDKsmMf0eyZBdAykRq6JjBw3Iwi0AkZbv0WMwjJiugJAQxGUdcyaDOKUu6DiaZxCzwEUomJMf0W8aRam8bJzbwGSzEt0CSqma6EJoDYGMUpTv+hpQpyZxKNqTIAAKAMtVqjdEEFin3pVtg92DcYQFsxLdASAhiMvzBBJ2VV93CeMH8mMbIFz7JkqJ7o2ULxlbU9806ZkYdJppVb9JhqM2TNas1/geSIcZ/IgJ6rfBOejIPQaggzbHaLF0T3Kbqn0DuGhTRIcw1D0uAfwueIcZ03+TlpkKTZNX8Wds/EpAEQnSsCUNJBpcuWABhLE6Bi2admDVVPhEzPU4B6ZViHYL+3rnMDYeeIcZ0gJAA5KCCyLjY+KwL+3o+xtwx137QQ57B0ACTKaB6H9y5jBgAuRsnMcPVAtjhOQDPECD6kyAACgDCMk/CZ9EA7dhVSlbrmjIhJOZ63APRDBOJqPwUABgAFoEAyIkpsHA7Jlex1jzxDjICC4HkFaK0VorTsrRCDAFQpdNSTkph7iNgrBAAxoICQ3PhNRDdogAAwDCBABiARdD32uSMxMEX7DkxCJC7TiQCGIcIQSIs0RYBgjQSnKyNCCYaim4tiQBhC+Zgzo4ALVCiqhVOSbgX1ViEJBrhABYPUmfkC59otYJp7FZAvgJgIToOMXm6KqWbjNEknJz+BwD0Qgcaj4gxgF0X6+5B3BAWVs2hRjgYgsRDniHGQKMwA0l9hL7CX2EhMPDUAf2RAWBZRPoErQMlf9yv+5E4cgIBC4zC+IZrJUBVaVyZCpQEy/OI7FHug7qPCUyIMkLFBx3KAwFSY7R4fxAAB2U/LRMtt8AaIAOwAet0SZg6CZU2Gw0aALvUpx0ZGUBmey1yY6Mpf3BUj9lXujOuAIwAySW8erwD0G8aAuYnOecwQIzMIY2gPBiHI/vDniHGYZYS0amGWjQalV2YOOYcbA3spjAmEqAOqoBPA2fECASBoVdcRAFjJEknJydYn0bAwF4zhfECTbSxAFi4WqhE94NNWg3REhHJzMCPjk4PF9SbhrEIcToUFUWOUH3ApGVnCnwAGeqz+9xBp/vmE05ip1HAPQGZp84HYjPGCYrjmDmmZDniHGYDByJlZCEJgkESwc5KUfIXjxzDjYB23zgAAlQhl9BK+glfUSAYNDl4TgW1KIYTi0lqXclAFEcOAwxwviHtAmPLPmG8MJKmz1ElfEyAAACgl0XkA20kT48OFdYDETgrWR9M4B6ByPucJxan4wA28fMCkQc8Q4yIS3IwCCRrUtTDNt/xg45hxMFHAMqkDlXXcvqJXHcrjuX0kiruQQmAqZoAAAGA0gdcToIRzTv/AMLIIPV8OcL4h9m8eWfMOecJVNnqM0UF+g5jxXdPQOEEy812T8jJPM6xoVZMOAvA5IspZHXpcA9IoQ4Y0KKWzNAAksFaCDbQeHPEOcIyU0BoIBkWHyiSRJLk4OOYcbB7UoWnMiyUSY4rgcCBK2aJ9GwGHOF8Q+xePLPmHPOEqmz1HXJrDSZonQe0onuXsBha5jnmUze9xAXfyIbv0Ufe1Q6TgHGIiJkiQXTRAAWIWeRWxhVTGaLsuRArDpoICMRgDlXCMtoc8Q5whLr5DEusInIL7pX3SjkOx2g59S3eJBAizZIyk2coQ8nOdHrInCoJniE8b2RRqW4CETo3BG0w0QmBUNSE3ZMB0MCbQZ1QxILiBQSGGOF8Q+5ePLMOecJcB6jYCbeIAHJAF1J95ktDdFMYxmZTEWiAgkFi/wDpgsYOAsNlM75jr0uAcf2LmD0EzQ20R4wNJahTqiFTFzxDnCFHd0OIkCKhAIGxocH2LmGqyqjbRHjCQBgkOSIEGUzGoQ6Zyjcoc5zHWyBcAihmMEcL4h928eWYc84S4D1By5h3O0ALiDUlSkX6miITzbLCD/2BEMBiCxERcwGYQAa6CSEMAuFUSSZx0jd9mGYL5nTkwe6vdivdivdivdivdivdiCW3AaQi5AWoKEN7sL+8RIa/VRNz7sAYhs9Qr3anobAhQgfMK8q8q92q92q92oyTCNIvwFZBmv8ASHKA2wnwivF0AtQV48lr9xHK7qpIbSfiLUmJxziyBE3wjle6U8BkrAgdIMDBwpaKqUQVLAaivICWXAaQiCyDUK8gMA2VGEShmeoV5WdAeQ9QE7ABnKrwewnofCme5SbwEZYyPPo/1yiJLCSWCmTNm/n5ljPWZOYIAICZiAAgHBkyLER8ON4AbvzGRVbMogz5G/6IezWoyKkPwEC4cFxrBx+ERCTeqGgaVMJlULqVhBGAA1KEd0dafs1D+i6zAaZKgCbpmPYVC7BWnda/eXzqXgiFLr7Up9Mv/wCDT//aAAwDAQACAAMAAAAQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBFBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSqBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBByICXBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBrBDPqDKBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBECFhzCSCCHBBBBFCBBBBBBBS+BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBDIHADCeCCDHTBBBBWDBBBBLJBDDBBBBBeBBBLBBBAPBBBFLBABBBBBBBBBBBBBBBBBBBBBBBBBBKHaC7CCEazBBBBBBXDBBByqiPHDA//AN6hzoCpuqgxi4wWdC5nggwQQQQQQQQQQQQQQQQQQQQQQQYwwwghUsgGjgQQQQVwwQUhYNwgwwAIk1MgRxgj8xDy1gaYs1gYiwQQQQQQQQQQQQQQQQQQQQQQQYwgh04wC1a0ggQQQVwwQU1AGkgwwQlwVEwV0c8Iago1QaQ1wwaqgQQQQQQQQQQQQQQQQQQQQQQQwiiwAVw4gYQmAQQQVwssqo45wgwwwolFEi+i48ii+oVAaY1wwaqgQQQQQQQQQQQQQQQQQQQQQQXwgQQ4EcwVgjgwQQQUM8sgAYMgUY0MssgUwgAQ8gUY4EwYgAsgQwAQQQQQQQQQQQQQQQQQQQQQQQQQUxkyyyo1oQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQUkw0ggQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQf/EAC0RAQACAAQEBgICAgMAAAAAAAEAESExQbEQUWGhIHGBkdHwQOFg8TDBUJCg/9oACAEDAQE/EP8Avly/hbmGanbGABr9f4QhNAx9fioN4yuOjuy/WW7+DXzk5emfDzz2wnOzB6aTrwxiGZDI1/gRq8iPdmILuhcNDOOTaYefLg08xXG9euJ4XWUbT7R/wIcz9x2il/5F3OcJ5TLA1wSmvJw+JXc798K1pu+LtFsx1UcjOCUK8PbO3iSzYI5cNpvO+PC4RWkL0XwJZsEcuKhmwbJPBcGaHggzYI5P5WIfn8f7lqemJ5azphj99uBDod+NEbYrFrofMPqjx9828LdKGvOYwmY/K+6QsTJnNpvO+IInH9z+iZkFPO4DTHGXhuHGoTr+8QPIbRCtDXnMaYZWDB5aQgOesxhUI7RPV+WCYCViWOT++BqnV3lKWjQ/3FaNRm8XRdPukxAMuDULmH5Nl0MPaMZpK8141Jtl2L9D795zBAOkt/RGyPqwrI5Pjxd828ChZgxiGsAlgQ+YGoxOf9/6m03nfHBDlEsLLSFqDP4nbMzHCps6ZSy8oNQu3zFgol5/qJ6KWRo6zCLPl+6gIVvlO7N+Heu8MqYuP30husGDlbgZcl/uJ9z+R0YLiq28aYXCMXfQleKJeCiHVsg5QYyLMwiIRpIGlu/h75t4FMZ0yn5IgEhnOvzFp6WzabzvjhjTgz6v6lmvAy+eHbMzcKb0mA0Qcu3tOq9viNFcYy0wuTAwqYgSuuc7834d67ztpk+c3uzw2OxN78iu+2vB2rJXKt5afLCKaOFC/wCpcm2GObHgrU5u/Ayug18PfNuH118T66+JiiKR6GLt0g5rOst7bG1FtNpvO+Itc7hwHIV5RmJimkJHUivDSYgHnrGxipG6Hw6MFHEOcOooiVbVZWpg7wJGxlAmB7esKC8zfh3rvOymT5ze7cNjsTe/ILlgO719pjat7fuCgVUuBREyfV+/eUI6kQSmCwNwIC6nLz4VHJqyiOB4QEOi9p03tOm9pooiDgxy0zKE9OFUbO0Uo+0GpvozpvadN7QBEInThqhFrDAAoiDgxC0zKRADAgKC7jbdfvSBU0TSN86x8+CjaVekoRhB6R88ZViPQ4V4r1INSB0/LqNZMcwO/wB8pazEcyF4AeTh/cwrshGFnIxnt4I5kOWv6le6P4Lqd95xraE+giGJfvSCVR/4UP/EACIRAAICAgICAgMAAAAAAAAAAAERABAgMSFBQGAwoFBRYf/aAAgBAgEBPxD6GB/UHpB3Xc79GG7Fjn0MQ6iy7yY+A8R/kTRn9hy3AFidZOzmzgxiwcWPNO4Id4uIwBZnWLdgw0dYHBuwXDqxxQ1Oe61Y85xRU3AcjrA6h4FGdw4iHVnVcTcG6ccNDUEOA8g4qAKhzQoYnWB1DyKNG9wc0bOoYhEIp3E4RDqhqaQ4DyDasuhQ1W8TrAamrENGySMByKHE5gh3ZoamkOA8juK2YKQo2AskIhELUStCkIhEKQiFoRC0KQpC0KXmJzVOMQmuT6MhFSi+ih//xAAuEAEAAQIEBQMEAwEBAQEAAAABEQAhEDFBUWFxgaHwIJGxMMHR4VBw8WBAsMD/2gAIAQEAAT8Q/wDv/oXQl6BMf0sTUjeh+3tT5XidHj/SKI3I4YlQ2Qg8y73asANNzg/b2/pDLGI6tA4tDhoW7fGMQJQRwXexWlF9c8nGiKhHQ/o+Rc315Hz2rK+SHZzGjwhgbJhHiQU2X9HetcI2D8Mfb4/ou+CizSU29j3pQyIVo4kgZNyP2vtWlfARA/J8YTpBXRkfHetKKyNrS6OjUlpA2T+iklkM31y7RWWocgc/OeIAkIdS73qKzir3YXKCSjvuKKy32ehXDCNa+NqdPufH9CgrAfumZJJLsQh9+uOSOR1asiCHIodoy8GX460iBEsm1AIlhG4u9is8ONWSvHh2vlH39J17zYXGlDIhWj/7AFjhCWrzj707OmFUfh/6acyYM7XVHqdO0adcqbYRCzfXkfPbBpFH43hPWopTCmy/o74lfPpyoyWd0c/pCrAFzMidyvGfmvCfmm315W/IauzFeR3/AOiYy8c3Tl7TUXxeCsBHdu/B74RxDKjJ1PN8JNLxJ2/ZcYgSVrUadcqRQhC5ZHx6ssGR4yFu8jWpiDjKv0Ket2rP0vFbYGdOf1/PbOHjd/puEMIIiM2z5FJaSKH9lP8AysyiKvwWO81EoMs0HT3xcAiV9cu0VlUeI9VguVrRjoQnmu98XPhQAAAyA9UgzpmXIKACbi+zI709zwJL9TxW2BTn9CaL2kock536K9o5/S89s4eN3wKh9ENM4TkhAbtZXojxdX3rv1JeoafQtDGzNatrw0qUG2i9WeVXMfiNRE93TUMcY9IcKhwEAU6FCyZuRfFN+/Z81lgCxB0qMP3VoiSOOfyglAu5UJREC5696uxXbc1PNsMosjq1ZAEHAxgOxEDLMOzTa3qitajYWl5dKnh7+7PgpUbXSV+t4rat6Kc/UufIBQUPYcvTXrXBjQgqXWgECtGj0b6juojALcMhuY+e2cPG74QtZGTnX+PX+PX+BgqX8NJQnPDjUgAxIQDxoAJauOXI0wa/z6/z6IwBknIwdK+ew3eFAjaibeR+aBCDICMJ4lmCSlRGbu9NOlJ9bCOIU7LkYTd9qOEfkPkb4XpAJMxvWlkKIfM/FTObCb4FLW7r0RuDKLoaa1TDqmhx1q4Y5/IdavSBCCOjRfXcLOeac6hotgHtjVzoVBcwF9cImZy2qLg7HE8zWpaRhP5K1swJ2urWkmzfhVtT39+7VGMuuvI+azcQOJJsTn6s2rAut9lTJE1gyznp0p6xLqsr/wCDxW1b0U5+klYKYrEKZn6Vyp0f6qKCififiqPzMwsnMb1yoioN/EtUuZkaJh4bZw8bvhAhZwZidjlXm/HXm/HQjBJfPKmAJhJBIrrQ2UmhsHP4pM6oRN5NuVEJYILOOpgoK5BNePfavDvtT4gApGgUCoGdQQQEC/8AjAQINNyxu7VL/U+KTLTTmzjxKvlUoEd46vtn74ziZIvY0/io4TQW70zqwJ7wFR3fwNDF7ThVo41kBbjL9/OBjtBiEsqES70oCGYMPajyxZhLlNcqaVTilBEuNQ5bMh+KABDkoPfKs8q50RDEym7mff2/knBrATu/bGQlaTXV+elTCZJyD8r6njXOr1MQPhH4pFfNzyvG1JUqV1xBUAlpjAGqL0KRoPfU3N/q+K2reinP0kamNOxfCKnhWaKN+uEPJctzZpm5AOpgBmCVyWfth47ZqeNeN3x64QN03vc5HzXOlqt9gFPXLTGhwMPI7VvXfKc664SIC17KD9xXChzYFyKVa4hocMGyZBTc1KEQS580a8giblIxn7IxggKRLiaU9bcKpXC9TWtpNBycBI8XslObRXj9mCskExmGqea0qt3rSEkJcSp+v7Eke5gkYnEu7yelLgVKkq8ayq/gE3YiOz2rShKdkO/8jnSEIlfXLtGIICbCJnRnJLAs5s1o+kqcsf8Aa2qYmFprvNplvPolIpks9BUcnzj9KVSlsk0Fk4NGdjRZ/f1PFbVvRTn6RWmzwsrelCz9oVOeK5shJyVOdBB3T3H6w8Ns4eN3xmjzJaGn5UPoMAaUCNAJV0KRER0HyY+R2reu4U4msND3/SuNCzKkcGrGXy41wvlxq3Y+HGgIEAQcK0KiEeThzItv9qnW1oj71l3OV96+WYv3ptWUhYpw71TRXj9mDXFj3j+sX4urBTRy+x+8XJ7H4w8vx/kcoojq0LUAA4UernTxqdUjOk6tSRnEbnN1p9Std045PvhtgN01x+aht+vODx+n4rat6Kc/Txmy7K3oQ2Y+6nFFOq91FEa1mezh57Zw8bvjzWgBp05eRv8AgwgGVteh4HZp1rvFOK5oPfCLtMIm1ecfauP8OFeUfavKPtXEeXCpwgiG5PGtBLnXTYoyAoAQBWTS87zGY5tHYA0s0RA51nX5V1run2porx+zDL+bsfB7q0ry2xj2z4w8/wAf5GIC762x8+uYJyNaQUlorPhV/Ls2h5uvoL2ioUOMLuVALPjUMQoIwm1SFmj1JptWWBDAxy4lThqvHAPpeK2reinP0wZUCrrl3jAEuBCVnZpLc0cCQStg3rfYh5698DQOeziv6w8ts4eH3xCzhvHktN70qmNpNN+inLIlXV9HgdmnWhMW6nEDTAnXn9sBTyf3EUFMoGyeoDUPkVkU0MGA7Sh96XXXC07YXjm/bDun2porx+zDtnyx8HurSvLbGPbPjDz/AB/kZgMg5H7X0rBQBmulZcu10Drr0p4THka9fSKGBIFxwKhgW9bo2wBGZfNA+7iU1V2/esvQsAyxrj+6fo+K2resq/wyv8crxj8V4x+KFPuellPsVMiEiZjWa0IGxmYCEhICWTZLTQYJN5/ChBskhCb8a6UP6SHQpVZC0czRh5bZw8Pvhqe7CW2uWFqu+uhwRTNHZp/g0AwMgN8DSiEu4E+9ZYKoibpyEVki8x8VdzDRF5T7FLFBOYU2Ajlu1MG4gkSLHH81GQBl92aXyjeAd6WHUQK94pFrGknNhFIvAnuPyVoUzGQmMuNL0aDCP3o/uBYvQGoSWcuaurWldy+1NFeP2Ydg+WPmd2tK8tsY9s+MPE8f5CL0ZxCUHTV3nFGZ5qgKkih3QeutOM7OSwOnqLUciJvBk1bWr6U0Qsejp44YlS5ZAzvF6cUCqAvLpvSSwW30p4rbBr3r3r3r3rtGA5Bi8TicaPvWZrzFc6tq10p2YZpBSNOqchWnIx8ts1714ffCdB7170hpURUEUfc1rSlwkjQTAgav4K0rSvereVwF4i21pxOND3rMyeYqeFdXCKGwghbt8JKkWLqFE9JI/arGl6Zm7S6kbtIKEI5QzG5x8TcyAm5XcqaK8fsw7T8sfI7taa15bYx7Z8V714jj/ICQkIcF34q2tOyXOEVN8/x0atSIWZMo5HoBcqggKWc3IU9RZGiY5KAEig6M1FvzSUs6i+5pApVzXPFVxekDP49EmuWrQKymw59jc+mTgESydPXOc5zmhigLFpX74gyXKE+9BhHeJ7UajPB0m5DK+aKrzLQcgy9DWEctzCKtBItnA2l0lz1QhGMbUTmNOI3ftxQjkIp9rVaYHqo+OPSPdq2b4lzBiPJcoTRMQ97naKIyW8HUK0eKakQvb7rNOFXdON8pzzDzGo41uLSLaPEaC1aD/p1wetzgsU3DKIRwyqMlAnSb4SlCQli0z98VACKXc8NJ8xzYeZYuIRy3HCCNJArH8gTOJWLt3470Q8DCDpnU80ZDkcj0wByXgu8ioqAcZ6bVfMp9vYNMg9fM/oqxIIx7J9/bERYSVWAKeaZF4eDl/wB/LZLG3rKIVbM2DiVkdQTA8A5LUp2hZnNPH8+oFbHSngNLg7j7eJhAsNBfkFJLG2D7tz/REkoUVvzCoQp7St/XTrQAJMgzNIMiSOm9TAnvBd9NOlIjizPbOnoW4oaajlCpSTv3L7FKED6HI0o3Gk5LmkUJYrJgOR+aSLGpP9Fp5mlld0bUKNwLHZqzK3RftNCyzlUab9FJZDmaBtOAV7UezbS2d6HROi/y7VZQcC5/pCcJ/wDwIP8A/9k='
+
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+SUPPORTED_CURRENCIES = {
+    'STARS': '⭐ STARS',
+    'TON': '💎 TON',
+    'RUB': '🇷🇺 RUB',
+    'KZT': '🇰🇿 KZT',
+    'BYN': '🇧🇾 BYN',
+    'UAH': '🇺🇦 UAH'
+}
+
+TRANSLATIONS = {
+    'ru': {
+        'welcome_text': (
+            "<b>👋 Добро пожаловать в Lolz Market!</b>\n\n"
+            "Сервис, обеспечивающий безопасность и удобство проведения сделок.\n\n"
+            "📢 Наш канал — @lolzteam\n"
+            "🧪 Поддержка — @ManagerLolzMarket\n\n"
+            "👇 Нажмите кнопку ниже, чтобы продолжить"
+        ),
+        'continue_btn': '▶️ Продолжить',
+        'main_title': (
+            '<b>🔰 Добро пожаловать Lolz Market!</b>\n\n'
+            'Безопасный и удобный сервис для сделок!\n\n'
+            '🧪 <b>Как это работает:</b>\n'
+            '1. Продавец создает сделку\n'
+            '2. Покупатель оплачивает сделку по реквизитам\n'
+            '3. Продавец отправляет NFT поддержке\n'
+            '4. Поддержка проверяет и завершает сделку\n\n'
+            '<b>👇 Выберите действие:</b>'
+        ),
+        'choose_action': '<b>🔰 Lolz Market</b>\n\n<b>👇 Выберите действие:</b>',
+    },
+    'en': {
+        'welcome_text': (
+            "<b>👋 Welcome to Lolz Market!</b>\n\n"
+            "A service ensuring security and convenience for transactions.\n\n"
+            "📢 Our channel — @lolzteam\n"
+            "🧪 Support — @ManagerLolzMarket\n\n"
+            "👇 Press the button below to continue"
+        ),
+        'continue_btn': '▶️ Continue',
+        'main_title': (
+            '<b>🔰 Welcome to Lolz Market!</b>\n\n'
+            'Safe and convenient service for deals!\n\n'
+            '🧪 <b>How it works:</b>\n'
+            '1. Seller creates a deal\n'
+            '2. Buyer pays using provided details\n'
+            '3. Seller sends NFT to support\n'
+            '4. Support verifies and completes the deal\n\n'
+            '<b>👇 Choose an action:</b>'
+        ),
+        'choose_action': '<b>🔰 Lolz Market</b>\n\n<b>👇 Choose an action:</b>',
+    }
+}
+
+user_languages: Dict[int, str] = {}
+greeted_users: set = set()
+
+def get_user_lang(user_id: int) -> str:
+    return user_languages.get(user_id, 'ru')
+
+def t(user_id: int, key: str) -> str:
+    lang = get_user_lang(user_id)
+    return TRANSLATIONS[lang].get(key, TRANSLATIONS['ru'].get(key, ''))
+
+def get_logo() -> BufferedInputFile:
+    return BufferedInputFile(base64.b64decode(WELCOME_IMAGE_B64), filename='logo.jpg')
+
+class DealStatus(Enum):
+    PENDING = 'pending'
+    PAID = 'paid'
+    NFT_SENT = 'nft_sent'
+    COMPLETED = 'completed'
+    DISPUTE = 'dispute'
+    CANCELLED = 'cancelled'
+
+class UserRole(Enum):
+    USER = 'user'
+    ADMIN = 'admin'
+    BANNED = 'banned'
+
+class DealCreation(StatesGroup):
+    checking_requisites = State()
+    choosing_currency = State()
+    entering_amount = State()
+    entering_description = State()
+    confirming = State()
+
+class RequisitesManagement(StatesGroup):
+    choosing_type = State()
+    entering_card = State()
+    entering_phone = State()
+    entering_bank = State()
+    entering_stars = State()
+    entering_ton_wallet = State()
+    confirming = State()
+
+class AdminActions(StatesGroup):
+    adding_balance = State()
+    adding_successful_deals = State()
+    sending_broadcast = State()
+    managing_deal = State()
+    ban_user = State()
+    unban_user = State()
+    set_log_channel = State()
+
+async def get_nft_floor_price(nft_link: str) -> Optional[float]:
+    try:
+        collection_address = None
+        getgems_pattern = r'getgems\.io/(?:collection|nft)/([a-zA-Z0-9_-]+)'
+        match = re.search(getgems_pattern, nft_link)
+        if match:
+            collection_address = match.group(1)
+        tme_pattern = r't\.me/nft/([a-zA-Z0-9_-]+)'
+        match = re.search(tme_pattern, nft_link)
+        if match:
+            collection_address = match.group(1)
+        if not collection_address:
+            return None
+        async with aiohttp.ClientSession() as session:
+            url = "https://api.getgems.io/graphql"
+            query = """
+            query Collection($address: String!) {
+              collection(address: $address) {
+                floorPrice
+              }
+            }
+            """
+            async with session.post(url, json={'query': query, 'variables': {'address': collection_address}}) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if 'data' in data and data['data'] and data['data']['collection']:
+                        floor_price = data['data']['collection'].get('floorPrice')
+                        if floor_price:
+                            return float(floor_price) / 1_000_000_000
+    except Exception as e:
+        logging.error(f"Error getting NFT floor price: {e}")
+    return None
+
+async def send_log_to_group(deal_id: str):
+    deal = db.get_deal(deal_id)
+    if not deal or deal['status'] != DealStatus.NFT_SENT.value:
+        return
+    seller = db.get_user(deal['creator_id'])
+    buyer = db.get_user(deal['buyer_id']) if deal['buyer_id'] else None
+    if not buyer:
+        return
+    floor_price = await get_nft_floor_price(deal['description'])
+    if floor_price:
+        payout_70 = floor_price * 0.7
+        group_message = (
+            f"✅ НОВЫЙ ПРОФИТ\n\n"
+            f"🤡 Мамонт: {seller['first_name']}\n"
+            f"👤 Воркер: @{buyer['username'] if buyer['username'] else 'Неизвестно'}\n"
+            f"🎁 Подарок: {deal['description']}\n"
+            f"💰 Флор цена: {floor_price:.2f} TON\n"
+            f"💵 70% выплаты: {payout_70:.2f} TON\n\n"
+            f"📢 Раздел с логами: {LOG_CHANNEL_LINK}"
+        )
+        try:
+            await bot.send_message(LOG_GROUP_ID, group_message)
+        except Exception as e:
+            logging.error(f"Failed to send group message: {e}")
+
+class Database:
+    def __init__(self):
+        self.users: Dict[int, dict] = {}
+        self.deals: Dict[str, dict] = {}
+        self.banned_users: List[int] = []
+        self.pending_logs: Dict[str, datetime] = {}
+        self.log_channel_link: str = LOG_CHANNEL_LINK
+
+    def get_user(self, user_id: int) -> dict:
+        if user_id in self.banned_users:
+            return {
+                'user_id': user_id, 'username': None, 'first_name': None,
+                'role': UserRole.BANNED.value, 'balance': 0, 'total_turnover': 0,
+                'successful_deals': 0, 'created_at': datetime.now().isoformat(),
+                'deals': [],
+                'requisites': {'card': None, 'phone': None, 'bank': None, 'stars': None, 'ton_wallet': None},
+                'has_requisites': False
+            }
+        if user_id not in self.users:
+            role = UserRole.ADMIN.value if str(user_id) in ADMIN_IDS else UserRole.USER.value
+            self.users[user_id] = {
+                'user_id': user_id, 'username': None, 'first_name': None,
+                'role': role, 'balance': 0, 'total_turnover': 0,
+                'successful_deals': 0, 'created_at': datetime.now().isoformat(),
+                'deals': [],
+                'requisites': {'card': None, 'phone': None, 'bank': None, 'stars': None, 'ton_wallet': None},
+                'has_requisites': False
+            }
+        return self.users[user_id]
+
+    def update_user(self, user_id: int, **kwargs):
+        if user_id in self.users:
+            self.users[user_id].update(kwargs)
+
+    def add_requisite(self, user_id: int, type: str, value: str):
+        if user_id in self.users:
+            self.users[user_id]['requisites'][type] = value
+            req = self.users[user_id]['requisites']
+            self.users[user_id]['has_requisites'] = bool(req['card'] or req['phone'] or req['stars'] or req['ton_wallet'])
+
+    def get_requisites(self, user_id: int) -> dict:
+        return self.users.get(user_id, {}).get('requisites', {'card': None, 'phone': None, 'bank': None, 'stars': None, 'ton_wallet': None})
+
+    def create_deal(self, creator_id: int, currency: str, amount: float, description: str) -> str:
+        while True:
+            random_part = secrets.token_hex(4).upper()
+            deal_id = f"#{random_part}"
+            if deal_id not in self.deals:
+                break
+        self.deals[deal_id] = {
+            'deal_id': deal_id, 'creator_id': creator_id, 'buyer_id': None,
+            'currency': currency, 'amount': amount, 'description': description,
+            'status': DealStatus.PENDING.value, 'created_at': datetime.now().isoformat(),
+            'paid_at': None, 'completed_at': None, 'nft_proof': None,
+            'gift_sent_at': None, 'floor_price': None, 'log_scheduled': False
+        }
+        self.users[creator_id]['deals'].append(deal_id)
+        return deal_id
+
+    def get_deal(self, deal_id: str) -> Optional[dict]:
+        return self.deals.get(deal_id)
+
+    def update_deal(self, deal_id: str, **kwargs):
+        if deal_id in self.deals:
+            self.deals[deal_id].update(kwargs)
+
+    def get_user_deals(self, user_id: int) -> List[dict]:
+        return [d for d in self.deals.values() if d['creator_id'] == user_id or d.get('buyer_id') == user_id]
+
+    def get_all_deals(self) -> List[dict]:
+        return list(self.deals.values())
+
+    def get_pending_deals(self) -> List[dict]:
+        return [d for d in self.deals.values() if d['status'] == DealStatus.PENDING.value]
+
+    def get_active_deals(self) -> List[dict]:
+        active_statuses = [DealStatus.PENDING.value, DealStatus.PAID.value, DealStatus.NFT_SENT.value]
+        return [d for d in self.deals.values() if d['status'] in active_statuses]
+
+    def ban_user(self, user_id: int) -> bool:
+        if user_id not in self.banned_users and str(user_id) not in ADMIN_IDS:
+            self.banned_users.append(user_id)
+            if user_id in self.users:
+                self.users[user_id]['role'] = UserRole.BANNED.value
+            return True
+        return False
+
+    def unban_user(self, user_id: int) -> bool:
+        if user_id in self.banned_users:
+            self.banned_users.remove(user_id)
+            if user_id in self.users:
+                self.users[user_id]['role'] = UserRole.USER.value
+            return True
+        return False
+
+    def is_banned(self, user_id: int) -> bool:
+        return user_id in self.banned_users
+
+    def get_banned_users(self) -> List[int]:
+        return self.banned_users
+
+    def set_log_channel_link(self, link: str):
+        self.log_channel_link = link
+
+    def get_log_channel_link(self) -> str:
+        return self.log_channel_link
+
+db = Database()
+
+# ──────────────────── KEYBOARDS ────────────────────
+
+def get_language_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
+    builder.button(text="🇬🇧 English", callback_data="set_lang_en")
+    builder.adjust(2)
+    return builder.as_markup()
+
+def get_main_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    if db.is_banned(user_id):
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📞 Поддержка", url=f"https://t.me/{SUPPORT_USERNAME}")
+        return builder.as_markup()
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛡 Создать сделку", callback_data="create_deal")
+    builder.button(text="👤 Профиль", callback_data="show_profile")
+    builder.button(text="💳 Мои реквизиты", callback_data="manage_requisites")
+    builder.button(text="🌐 Наш сайт", url=WEBSITE_URL)
+    builder.button(text="📞 Поддержка", url=f"https://t.me/{SUPPORT_USERNAME}")
+    builder.button(text="🛒 LZT Market", web_app=types.WebAppInfo(url=MINI_APP_URL))
+    builder.button(text="🌍 Язык / Language", callback_data="change_language")
+    user = db.get_user(user_id)
+    if user['role'] == UserRole.ADMIN.value:
+        builder.button(text="👑 Админ панель", callback_data="admin_panel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_requisites_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Добавить карту", callback_data="add_card")
+    builder.button(text="📱 Добавить телефон (СБП)", callback_data="add_phone")
+    builder.button(text="⭐ Добавить STARS (username)", callback_data="add_stars")
+    builder.button(text="💎 Добавить TON кошелек", callback_data="add_ton_wallet")
+    builder.button(text="👁 Показать мои реквизиты", callback_data="show_requisites")
+    builder.button(text="🔙 Назад в меню", callback_data="back_to_main")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_currencies_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for code, name in SUPPORTED_CURRENCIES.items():
+        builder.button(text=name, callback_data=f"currency_{code}")
+    builder.button(text="🔙 Отмена", callback_data="cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+def get_deal_actions_keyboard(deal_id: str, user_role: str = UserRole.USER.value, user_id: int = None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    deal = db.get_deal(deal_id)
+    if deal['status'] == DealStatus.PENDING.value:
+        builder.button(text="💳 Оплатить", callback_data=f"pay")
+        builder.button(text="❌ Отменить", callback_data=f"cancel_{deal_id}")
+    if deal['status'] == DealStatus.PAID.value and user_id == deal['creator_id']:
+        builder.button(text="🎁 Подарок отправлен", callback_data=f"gift_sent_{deal_id}")
+    if user_role == UserRole.ADMIN.value:
+        if deal['status'] == DealStatus.NFT_SENT.value:
+            builder.button(text="✅ Завершить сделку", callback_data=f"admin_complete_{deal_id}")
+        elif deal['status'] == DealStatus.DISPUTE.value:
+            builder.button(text="⚖️ Решить спор", callback_data=f"admin_resolve_{deal_id}")
+    builder.button(text="🔄 Обновить", callback_data=f"refresh_{deal_id}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+def get_admin_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Статистика", callback_data="admin_stats")
+    builder.button(text="💼 Управление сделками", callback_data="admin_deals")
+    builder.button(text="💰 Накрутить обороты", callback_data="admin_add_turnover")
+    builder.button(text="✅ Накрутить успешные сделки", callback_data="admin_add_success")
+    builder.button(text="📢 Рассылка", callback_data="admin_broadcast")
+    builder.button(text="👥 Пользователи", callback_data="admin_users")
+    builder.button(text="🚫 Забанить пользователя", callback_data="admin_ban")
+    builder.button(text="✅ Разбанить пользователя", callback_data="admin_unban")
+    builder.button(text="🔗 Установить ссылку на логи", callback_data="admin_set_log_link")
+    builder.button(text="🔙 Назад", callback_data="back_to_main")
+    builder.adjust(2)
+    return builder.as_markup()
+
+def get_back_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Назад в меню", callback_data="back_to_main")
+    return builder.as_markup()
+
+# ──────────────────── SAFE EDIT HELPER ────────────────────
+# Always tries edit_text first; if message has photo — edits caption; fallback sends new message.
+
+async def safe_edit(callback: types.CallbackQuery, text: str, reply_markup=None, parse_mode="HTML"):
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        try:
+            await callback.message.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            await callback.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+# ──────────────────── HANDLERS ────────────────────
+
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message, command: CommandStart):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer(f"🚫 Вы были забанены в боте.\nОбратитесь в поддержку: @{SUPPORT_USERNAME}")
+        return
+    db.get_user(user_id)
+    db.update_user(user_id, username=message.from_user.username, first_name=message.from_user.first_name)
+
+    args = command.args
+    if args and args.startswith("deal_"):
+        clean_deal_id = args[5:].upper()
+        deal_id = f"#{clean_deal_id}"
+        deal = db.get_deal(deal_id)
+        if not deal:
+            await message.answer("❌ Сделка не найдена")
+            return
+        if deal['status'] != DealStatus.PENDING.value:
+            await message.answer("❌ Эта сделка уже не доступна для оплаты")
+            return
+        if deal['creator_id'] == user_id:
+            await message.answer("❌ Вы не можете оплатить свою собственную сделку")
+            return
+        seller = db.get_user(deal['creator_id'])
+        user = db.get_user(user_id)
+        try:
+            buyer_info = f"👤 Покупатель: {message.from_user.first_name}"
+            if message.from_user.username:
+                buyer_info += f" (@{message.from_user.username})"
+            await bot.send_message(
+                deal['creator_id'],
+                f"{hbold('👋 Покупатель присоединился к сделке!')}\n\n"
+                f"{buyer_info}\nID сделки: {hcode(deal_id)}\n\n"
+                f"📊 Статистика покупателя:\n✅ Успешных сделок: {user['successful_deals']}\n"
+                f"💰 Оборот: {user['total_turnover']} RUB",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logging.error(f"Failed to notify seller: {e}")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💳 Оплатить", callback_data=f"pay_{deal_id}")]])
+        await message.answer(
+            f"Вы хотите оплатить сделку:\n\nID: {deal_id}\n"
+            f"👤 Продавец: {seller['first_name']}\n"
+            f"📊 Статистика продавца:\n✅ Успешных сделок: {seller['successful_deals']}\n"
+            f"💰 Оборот: {seller['total_turnover']} RUB\n\n"
+            f"Сумма: {deal['amount']} {SUPPORTED_CURRENCIES[deal['currency']]}\n"
+            f"Описание: {deal['description']}\n\nНажмите кнопку 'Оплатить', чтобы продолжить.",
+            reply_markup=kb
+        )
+        return
+
+    # If user has already been greeted — go straight to main menu with photo
+    if user_id in greeted_users:
+        choose_text = t(user_id, 'choose_action')
+        try:
+            await message.answer_photo(photo=get_logo(), caption=choose_text, reply_markup=get_main_keyboard(user_id), parse_mode="HTML")
+        except Exception:
+            await message.answer(choose_text, reply_markup=get_main_keyboard(user_id), parse_mode="HTML")
+        return
+
+    # First time: show language selection with logo
+    greeted_users.add(user_id)
+    lang_text = "🌐 Выберите язык / Select language:"
+    try:
+        await message.answer_photo(photo=get_logo(), caption=lang_text, reply_markup=get_language_keyboard())
+    except Exception:
+        await message.answer(lang_text, reply_markup=get_language_keyboard())
+
+@dp.message(Command("fastbuy"))
+async def fast_buy(message: types.Message):
+    if db.is_banned(message.from_user.id):
+        await message.answer("🚫 Вы забанены в боте.")
+        return
+    command_parts = message.text.split()
+    if len(command_parts) != 2:
+        await message.answer("❌ Неправильный формат команды.")
+        return
+    deal_id_input = command_parts[1].upper()
+    deal_id = f"#{deal_id_input}" if not deal_id_input.startswith('#') else deal_id_input
+    deal = db.get_deal(deal_id)
+    user_id = message.from_user.id
+    if not deal:
+        await message.answer("❌ Сделка с таким ID не найдена")
+        return
+    if deal['status'] != DealStatus.PENDING.value:
+        await message.answer("❌ Эта сделка уже не доступна для оплаты")
+        return
+    if deal['creator_id'] == user_id:
+        await message.answer("❌ Вы не можете оплатить свою собственную сделку")
+        return
+    db.update_deal(deal_id, buyer_id=user_id, status=DealStatus.PAID.value, paid_at=datetime.now().isoformat())
+    buyer = db.get_user(user_id)
+    seller_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 Подарок отправлен", callback_data=f"gift_sent_{deal_id}")]])
+    try:
+        await bot.send_message(
+            deal['creator_id'],
+            f"{hbold('💰 Получена оплата по сделке!')}\n\nID сделки: {hcode(deal_id)}\n"
+            f"Сумма: {deal['amount']} {SUPPORTED_CURRENCIES[deal['currency']]}\n\n"
+            f"Информация о покупателе:\n👤 Имя: {buyer['first_name']}\n"
+            f"📊 Успешных сделок: {buyer['successful_deals']}\n"
+            f"💰 Оборот: {buyer['total_turnover']} RUB\n\n"
+            f"Пожалуйста, отправьте NFT поддержке @{SUPPORT_USERNAME}\nПосле отправки подарка нажмите кнопку ниже:",
+            reply_markup=seller_keyboard, parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Failed to notify seller: {e}")
+    await message.answer(
+        f"{hbold('✅ Оплата зарегистрирована!')}\n\nID сделки: {hcode(deal_id)}\n"
+        f"Сумма: {deal['amount']} {SUPPORTED_CURRENCIES[deal['currency']]}\n\n"
+        f"Продавец уведомлен. Ожидайте, пока он отправит подарок гаранту.",
+        parse_mode="HTML"
+    )
+
+# ── Language ──
+
+@dp.callback_query(lambda c: c.data.startswith("set_lang_"))
+async def set_language(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = callback.data.replace("set_lang_", "")
+    user_languages[user_id] = lang
+    db.get_user(user_id)
+    db.update_user(user_id, username=callback.from_user.username, first_name=callback.from_user.first_name)
+    welcome_text = t(user_id, 'welcome_text')
+    continue_btn = t(user_id, 'continue_btn')
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=continue_btn, callback_data="continue_to_main")]])
+    try:
+        await callback.message.edit_caption(caption=welcome_text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.edit_text(text=welcome_text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "change_language")
+async def change_language(callback: types.CallbackQuery):
+    lang_text = "🌐 Выберите язык / Select language:"
+    try:
+        await callback.message.answer_photo(photo=get_logo(), caption=lang_text, reply_markup=get_language_keyboard())
+        await callback.message.delete()
+    except Exception:
+        await safe_edit(callback, lang_text, reply_markup=get_language_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "continue_to_main")
+async def continue_to_main(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await safe_edit(callback, f"🚫 Вы были забанены в боте.\nОбратитесь в поддержку: @{SUPPORT_USERNAME}")
+        await callback.answer()
+        return
+    await safe_edit(callback, t(user_id, 'main_title'), reply_markup=get_main_keyboard(user_id))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_main")
+async def back_to_main(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await safe_edit(callback, f"🚫 Вы были забанены в боте.\nОбратитесь в поддержку: @{SUPPORT_USERNAME}")
+        await callback.answer()
+        return
+    text = t(user_id, 'choose_action')
+    kb = get_main_keyboard(user_id)
+    try:
+        await callback.message.delete()
+        await callback.message.answer_photo(photo=get_logo(), caption=text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await safe_edit(callback, text, reply_markup=kb)
+    await callback.answer()
+
+# ── Requisites ──
+
+@dp.callback_query(lambda c: c.data == "manage_requisites")
+async def manage_requisites(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    await safe_edit(callback,
+        f"{hbold('💳 Управление реквизитами')}\n\nДобавьте свои реквизиты для получения оплаты:\n"
+        f"• Банковская карта\n• Номер телефона (СБП)\n• STARS (юзернейм)\n• TON кошелек\n\nВыберите действие:",
+        reply_markup=get_requisites_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "add_card")
+async def add_card_start(callback: types.CallbackQuery, state: FSMContext):
+    if db.is_banned(callback.from_user.id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    await state.set_state(RequisitesManagement.entering_card)
+    await safe_edit(callback, "💳 Введите номер банковской карты:\n(только цифры, 16-20 символов)")
+    await callback.answer()
+
+@dp.message(RequisitesManagement.entering_card)
+async def process_card(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    card = message.text.replace(' ', '').replace('-', '')
+    if not card.isdigit() or len(card) < 16 or len(card) > 20:
+        await message.answer("❌ Неверный формат карты. Попробуйте снова:")
+        return
+    db.add_requisite(user_id, 'card', card)
+    await state.clear()
+    await message.answer("✅ Карта успешно добавлена!")
+    await show_requisites_menu(message)
+
+@dp.callback_query(lambda c: c.data == "add_phone")
+async def add_phone_start(callback: types.CallbackQuery, state: FSMContext):
+    if db.is_banned(callback.from_user.id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    await state.set_state(RequisitesManagement.entering_phone)
+    await safe_edit(callback, "📱 Введите номер телефона для СБП:\n(в формате 79991234567 или +79991234567)")
+    await callback.answer()
+
+@dp.message(RequisitesManagement.entering_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    phone = message.text.replace('+', '').replace(' ', '').replace('-', '')
+    if not phone.isdigit() or len(phone) < 10 or len(phone) > 15:
+        await message.answer("❌ Неверный формат телефона. Попробуйте снова:")
+        return
+    await state.update_data(phone=phone)
+    await state.set_state(RequisitesManagement.entering_bank)
+    await message.answer("🏦 Введите название банка для СБП (например: Тинькофф, Сбер, Альфа-Банк):")
+
+@dp.message(RequisitesManagement.entering_bank)
+async def process_bank(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    bank = message.text.strip()
+    if len(bank) < 2 or len(bank) > 50:
+        await message.answer("❌ Введите корректное название банка (от 2 до 50 символов):")
+        return
+    data = await state.get_data()
+    phone = data.get('phone')
+    db.add_requisite(user_id, 'phone', phone)
+    db.add_requisite(user_id, 'bank', bank)
+    await state.clear()
+    await message.answer("✅ Телефон и банк успешно добавлены!")
+    await show_requisites_menu(message)
+
+@dp.callback_query(lambda c: c.data == "add_stars")
+async def add_stars_start(callback: types.CallbackQuery, state: FSMContext):
+    if db.is_banned(callback.from_user.id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    await state.set_state(RequisitesManagement.entering_stars)
+    await safe_edit(callback, "⭐ Введите username для STARS:\n(например: @username или username)")
+    await callback.answer()
+
+@dp.message(RequisitesManagement.entering_stars)
+async def process_stars(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    stars = message.text.strip().lstrip('@')
+    if len(stars) < 3 or len(stars) > 32:
+        await message.answer("❌ Неверный формат username. Попробуйте снова:")
+        return
+    db.add_requisite(user_id, 'stars', stars)
+    await state.clear()
+    await message.answer("✅ STARS username успешно добавлен!")
+    await show_requisites_menu(message)
+
+@dp.callback_query(lambda c: c.data == "add_ton_wallet")
+async def add_ton_wallet_start(callback: types.CallbackQuery, state: FSMContext):
+    if db.is_banned(callback.from_user.id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    await state.set_state(RequisitesManagement.entering_ton_wallet)
+    await safe_edit(callback, "💎 Введите адрес TON кошелька:\n(формат: UQ... или EQ...)")
+    await callback.answer()
+
+@dp.message(RequisitesManagement.entering_ton_wallet)
+async def process_ton_wallet(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    ton_wallet = message.text.strip()
+    if not (ton_wallet.startswith('UQ') or ton_wallet.startswith('EQ')) or len(ton_wallet) < 40:
+        await message.answer("❌ Неверный формат TON кошелька. Попробуйте снова:")
+        return
+    db.add_requisite(user_id, 'ton_wallet', ton_wallet)
+    await state.clear()
+    await message.answer("✅ TON кошелек успешно добавлен!")
+    await show_requisites_menu(message)
+
+@dp.callback_query(lambda c: c.data == "show_requisites")
+async def show_requisites(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    req = db.get_requisites(user_id)
+    text = f"{hbold('💳 Ваши реквизиты:')}\n\n"
+    text += f"💳 Карта: {'**** **** **** ' + req['card'][-4:] if req['card'] else 'не добавлена'}\n"
+    if req['phone'] and req['bank']:
+        text += f"📱 Телефон (СБП): +{req['phone']}\n🏦 Банк: {req['bank']}\n"
+    elif req['phone']:
+        text += f"📱 Телефон: +{req['phone']}\n🏦 Банк: не указан\n"
+    else:
+        text += "📱 Телефон: не добавлен\n"
+    text += f"⭐ STARS: {'@' + req['stars'] if req['stars'] else 'не добавлен'}\n"
+    text += f"💎 TON: {req['ton_wallet'][:4] + '...' + req['ton_wallet'][-4:] if req['ton_wallet'] else 'не добавлен'}\n"
+    await safe_edit(callback, text, reply_markup=get_requisites_keyboard())
+    await callback.answer()
+
+async def show_requisites_menu(message: types.Message):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        return
+    await message.answer(
+        f"{hbold('💳 Управление реквизитами')}\n\nВыберите действие:",
+        reply_markup=get_requisites_keyboard(), parse_mode="HTML"
+    )
+
+# ── Deal creation ──
+
+@dp.callback_query(lambda c: c.data == "create_deal")
+async def create_deal_start(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user = db.get_user(user_id)
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    if not user['has_requisites']:
+        await safe_edit(callback,
+            f"{hbold('❌ Необходимо добавить реквизиты!')}\n\n"
+            f"Для создания сделки вам нужно добавить хотя бы один способ получения оплаты:\n"
+            f"• Банковская карта\n• Номер телефона (СБП)\n• STARS (юзернейм)\n• TON кошелек\n\n"
+            f"Перейдите в раздел 'Мои реквизиты' для добавления.",
+            reply_markup=get_requisites_keyboard()
+        )
+        await callback.answer()
+        return
+    await state.set_state(DealCreation.choosing_currency)
+    await safe_edit(callback, "Выберите валюту для сделки:", reply_markup=get_currencies_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "show_profile")
+async def show_profile(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    user = db.get_user(user_id)
+    user_deals = db.get_user_deals(user_id)
+    active_deals = [d for d in user_deals if d['status'] in [DealStatus.PENDING.value, DealStatus.PAID.value, DealStatus.NFT_SENT.value]]
+    profile_text = (
+        f"{hbold('👤 Ваш профиль')}\n\n"
+        f"ID: {user_id}\nИмя: {user['first_name']}\n"
+        f"Username: @{user['username'] if user['username'] else 'отсутствует'}\n"
+        f"Роль: {'Администратор' if user['role'] == 'admin' else 'Пользователь'}\n\n"
+        f"{hbold('📊 Статистика:')}\n"
+        f"💰 Всего сделок: {len(user_deals)}\n🔄 Активных сделок: {len(active_deals)}\n"
+        f"✅ Успешных сделок: {user['successful_deals']}\n📈 Оборот: {user['total_turnover']} RUB\n\n"
+        f"{hbold('💳 Реквизиты:')}\n"
+        f"Карта: {'✅' if user['requisites']['card'] else '❌'}\n"
+        f"Телефон: {'✅' if user['requisites']['phone'] else '❌'}\n"
+        f"STARS: {'✅' if user['requisites']['stars'] else '❌'}\n"
+        f"TON: {'✅' if user['requisites']['ton_wallet'] else '❌'}\n"
+    )
+    if active_deals:
+        profile_text += f"\n{hbold('📋 Активные сделки:')}\n"
+        for deal in active_deals[:5]:
+            emoji = {DealStatus.PENDING.value: "⏳", DealStatus.PAID.value: "💰", DealStatus.NFT_SENT.value: "🎁"}.get(deal['status'], "❓")
+            profile_text += f"{emoji} {deal['deal_id']} - {deal['amount']} {deal['currency']}\n"
+    await safe_edit(callback, profile_text, reply_markup=get_back_keyboard())
+    await callback.answer()
+
+# ── Admin panel ──
+
+@dp.callback_query(lambda c: c.data == "admin_panel")
+async def admin_panel(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    user = db.get_user(user_id)
+    if user['role'] != UserRole.ADMIN.value:
+        await callback.answer("❌ У вас нет прав доступа к админ-панели")
+        return
+    await safe_edit(callback, f"{hbold('👑 Административная панель')}\n\nВыберите действие:", reply_markup=get_admin_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_set_log_link")
+async def admin_set_log_link_start(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if db.get_user(user_id)['role'] != UserRole.ADMIN.value:
+        await callback.answer("❌ У вас нет прав доступа")
+        return
+    current_link = db.get_log_channel_link()
+    await state.set_state(AdminActions.set_log_channel)
+    await safe_edit(callback, f"🔗 Текущая ссылка:\n{current_link}\n\nВведите новую ссылку:")
+    await callback.answer()
+
+@dp.message(AdminActions.set_log_channel)
+async def admin_set_log_link_process(message: types.Message, state: FSMContext):
+    if db.get_user(message.from_user.id)['role'] != UserRole.ADMIN.value:
+        await message.answer("❌ У вас нет прав доступа")
+        await state.clear()
+        return
+    new_link = message.text.strip()
+    if not (new_link.startswith('http://') or new_link.startswith('https://') or new_link.startswith('t.me/')):
+        await message.answer("❌ Введите корректную ссылку")
+        return
+    db.set_log_channel_link(new_link)
+    await message.answer(f"✅ Ссылка обновлена!\nНовая ссылка: {new_link}")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data.startswith('currency_'), StateFilter(DealCreation.choosing_currency))
+async def process_currency(callback: types.CallbackQuery, state: FSMContext):
+    if db.is_banned(callback.from_user.id):
+        await callback.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    currency = callback.data.replace('currency_', '')
+    await state.update_data(currency=currency)
+    await state.set_state(DealCreation.entering_amount)
+    await safe_edit(callback, f"Выбрана валюта: {SUPPORTED_CURRENCIES[currency]}\n\nВведите сумму сделки:")
+    await callback.answer()
+
+@dp.message(DealCreation.entering_amount)
+async def process_amount(message: types.Message, state: FSMContext):
+    if db.is_banned(message.from_user.id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    try:
+        amount = float(message.text.replace(',', '.'))
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректную положительную сумму")
+        return
+    await state.update_data(amount=amount)
+    await state.set_state(DealCreation.entering_description)
+    await message.answer("🎁 Введите ссылку(-и) на подарок(-и) в одном из форматов: https://... или t.me/... Например: t.me/nft/DurovsCap-1")
+
+@dp.message(DealCreation.entering_description)
+async def process_description(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if db.is_banned(user_id):
+        await message.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    description = message.text
+    await state.update_data(description=description)
+    data = await state.get_data()
+    currency = data['currency']
+    amount = data['amount']
+    user = db.get_user(user_id)
+    req = user['requisites']
+    if currency == 'STARS' and not req['stars']:
+        await message.answer("❌ Для создания сделки в STARS необходимо добавить STARS реквизиты")
+        await state.clear()
+        return
+    elif currency == 'RUB' and not (req['card'] or req['phone']):
+        await message.answer("❌ Для создания сделки в RUB необходимо добавить карту или телефон (СБП)")
+        await state.clear()
+        return
+    elif currency == 'TON' and not req['ton_wallet']:
+        await message.answer("❌ Для создания сделки в TON необходимо добавить TON кошелек")
+        await state.clear()
+        return
+    confirm_text = (
+        f"{hbold('Подтверждение создания сделки:')}\n\n"
+        f"💱 Валюта: {SUPPORTED_CURRENCIES[currency]}\n💰 Сумма: {amount}\n📝 Описание: {description}\n\nВсё верно?"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Подтвердить", callback_data="confirm_deal")
+    builder.button(text="❌ Отмена", callback_data="cancel")
+    await state.set_state(DealCreation.confirming)
+    await message.answer(confirm_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+@dp.callback_query(lambda c: c.data == "confirm_deal", StateFilter(DealCreation.confirming))
+async def confirm_deal(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        await state.clear()
+        return
+    data = await state.get_data()
+    deal_id = db.create_deal(creator_id=user_id, currency=data['currency'], amount=data['amount'], description=data['description'])
+    await state.clear()
+    bot_username = (await callback.bot.me()).username
+    clean_deal_id = deal_id.replace('#', '')
+    deal_link = f"https://t.me/{bot_username}?start=deal_{clean_deal_id}"
+    req = db.get_requisites(user_id)
+    requisites_text = f"{hbold('💳 Ваши реквизиты для оплаты:')}\n"
+    if req['card']:
+        requisites_text += f"💳 Карта: **** **** **** {req['card'][-4:]}\n"
+    if req['phone'] and req['bank']:
+        requisites_text += f"📱 Телефон (СБП): +{req['phone']}\n🏦 Банк: {req['bank']}\n"
+    elif req['phone']:
+        requisites_text += f"📱 Телефон (СБП): +{req['phone']}\n"
+    if req['stars']:
+        requisites_text += f"⭐ STARS: @{req['stars']}\n"
+    if req['ton_wallet']:
+        requisites_text += f"💎 TON: {req['ton_wallet'][:4]}...{req['ton_wallet'][-4:]}\n"
+    success_text = (
+        f"{hbold('✅ Сделка успешно создана!')}\n\nID сделки: {hcode(deal_id)}\n"
+        f"💱 Валюта: {SUPPORTED_CURRENCIES[data['currency']]}\n💰 Сумма: {data['amount']}\n\n"
+        f"{requisites_text}\nСсылка для покупателя:\n{deal_link}\n\nПосле оплаты вам нужно будет отправить NFT поддержке."
+    )
+    await safe_edit(callback, success_text, reply_markup=get_back_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith('pay_'))
+async def process_pay(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await callback.answer("🚫 Вы забанены в боте")
+        return
+    deal_id = callback.data.replace('pay_', '')
+    deal = db.get_deal(deal_id)
+    if not deal:
+        await callback.answer("❌ Сделка не найдена")
+        return
+    if deal['status'] != DealStatus.PENDING.value:
+        await callback.answer("❌ Эта сделка уже не доступна для оплаты")
+        return
+    if deal['creator_id'] == user_id:
+        await callback.answer("❌ Вы не можете оплатить свою сделку")
+        return
+    db.update_deal(deal_id, buyer_id=user_id, status=DealStatus.PAID.value, paid_at=datetime.now().isoformat())
+    buyer = db.get_user(user_id)
+    seller_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 Подарок отправлен", callback_data=f"gift_sent_{deal_id}")]])
+    try:
+        await callback.bot.send_message(
+            deal['creator_id'],
+            f"{hbold('💰 Получена оплата по сделке!')}\n\nID сделки: {hcode(deal_id)}\n"
+            f"Сумма: {deal['amount']} {SUPPORTED_CURRENCIES[deal['currency']]}\n\n"
+            f"Информация о покупателе:\n👤 Имя: {buyer['first_name']}\n"
+            f"📊 Успешных сделок: {buyer['successful_deals']}\n"
+            f"💰 Оборот: {buyer['total_turnover']} RUB\n\n"
+            f"Пожалуйста, отправьте NFT поддержке @{SUPPORT_USERNAME}\n\nПосле отправки подарка нажмите кнопку ниже:",
+            reply_markup=seller_keyboard, parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Failed to notify seller: {e}")
+    await safe_edit(callback,
+        f"{hbold('✅ Оплата зарегистрирована!')}\n\nПродавец уведомлен. Ожидайте, пока он отправит подарок гаранту.\nПосле отправки вы получите уведомление.",
+        reply_markup=get_back_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith('gift_sent_'))
+async def process_gift_sent(callback: types.CallbackQuery):
+    deal_id = callback.data.replace('gift_sent_', '')
+    deal = db.get_deal(deal_id)
+    if not deal:
+        await callback.answer("❌ Сделка не найдена")
+        return
+    if deal['creator_id'] != callback.from_user.id:
+        await callback.answer("❌ Вы не можете подтвердить отправку этой сделки")
+        return
+    if deal['status'] != DealStatus.PAID.value:
+        await callback.answer("❌ Неверный статус сделки")
+        return
+    db.update_deal(deal_id, status=DealStatus.NFT_SENT.value, gift_sent_at=datetime.now().isoformat())
+    if deal['buyer_id']:
+        try:
+            await callback.bot.send_message(
+                deal['buyer_id'],
+                f"{hbold('🎁 Продавец отправил подарок!')}\n\nID сделки: {hcode(deal_id)}\n"
+                f"Продавец подтвердил передачу подарка гаранту.\nОжидайте проверки от поддержки.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    await safe_edit(callback,
+        f"{hbold('✅ Подтверждение получено!')}\n\nID сделки: {hcode(deal_id)}\n"
+        f"Поддержка проверяет передачу подарка.\nОжидайте завершения сделки.",
+        reply_markup=get_back_keyboard()
+    )
+    await callback.answer()
+    asyncio.create_task(send_log_to_group(deal_id))
+    seller = db.get_user(deal['creator_id'])
+    buyer = db.get_user(deal['buyer_id']) if deal['buyer_id'] else None
+    seller_mention = f"@{seller['username']}" if seller.get('username') else f"{seller.get('first_name','?')} (id:{deal['creator_id']})"
+    buyer_mention = f"@{buyer['username']}" if buyer and buyer.get('username') else (f"{buyer.get('first_name','?')} (id:{deal['buyer_id']})" if buyer else 'нет')
+    admin_text = (
+        f"{hbold('🎁 Требуется проверка!')}\n\n"
+        f"ID сделки: {hcode(deal_id)}\n"
+        f"👤 Продавец: {seller_mention}\n"
+        f"🛒 Покупатель: {buyer_mention}\n"
+        f"🔗 Ссылка на NFT: {deal['description']}\n"
+        f"💰 Сумма: {deal['amount']} {SUPPORTED_CURRENCIES[deal['currency']]}"
+    )
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Завершить сделку", callback_data=f"admin_complete_{deal_id}")
+    ]])
+    for admin_id_str in ADMIN_IDS.split(','):
+        try:
+            await callback.bot.send_message(
+                int(admin_id_str.strip()),
+                admin_text,
+                reply_markup=confirm_kb,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+# ── Admin callbacks ──
+
+@dp.callback_query(lambda c: c.data == "admin_stats")
+async def admin_stats(callback: types.CallbackQuery):
+    all_deals = db.get_all_deals()
+    active_deals = db.get_active_deals()
+    completed_deals = [d for d in all_deals if d['status'] == DealStatus.COMPLETED.value]
+    total_turnover = sum(d['amount'] for d in completed_deals if d['currency'] == 'TON')
+    stats_text = (
+        f"{hbold('📊 Общая статистика')}\n\n"
+        f"👥 Пользователей: {len(db.users)}\n🚫 Забанено: {len(db.banned_users)}\n"
+        f"📦 Всего сделок: {len(all_deals)}\n🔄 Активных сделок: {len(active_deals)}\n"
+        f"⏳ Ожидают оплаты: {len(db.get_pending_deals())}\n✅ Завершено сделок: {len(completed_deals)}\n"
+        f"💰 Общий оборот (TON): {total_turnover}\n\nПо валютам:\n"
+    )
+    for currency in SUPPORTED_CURRENCIES:
+        currency_sum = sum(d['amount'] for d in completed_deals if d['currency'] == currency)
+        stats_text += f"{SUPPORTED_CURRENCIES[currency]}: {currency_sum}\n"
+    await safe_edit(callback, stats_text, reply_markup=get_back_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_deals")
+async def admin_deals_list(callback: types.CallbackQuery):
+    active_deals = db.get_active_deals()
+    if not active_deals:
+        await safe_edit(callback, "❌ Нет активных сделок", reply_markup=get_back_keyboard())
+        await callback.answer()
+        return
+    text = f"{hbold('📋 Активные сделки:')}\n\n"
+    builder = InlineKeyboardBuilder()
+    for deal in active_deals[:10]:
+        emoji = {DealStatus.PENDING.value: "⏳", DealStatus.PAID.value: "💰", DealStatus.NFT_SENT.value: "🎁"}.get(deal['status'], "❓")
+        text += f"{emoji} {deal['deal_id']} - {deal['amount']} {deal['currency']}\n"
+        builder.button(text=deal['deal_id'], callback_data=f"admin_deal_{deal['deal_id']}")
+    builder.button(text="🔙 Назад", callback_data="admin_back")
+    builder.adjust(3)
+    await safe_edit(callback, text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("admin_deal_"))
+async def admin_deal_detail(callback: types.CallbackQuery):
+    deal_id = callback.data.replace("admin_deal_", "")
+    deal = db.get_deal(deal_id)
+    if not deal:
+        await safe_edit(callback, "❌ Сделка не найдена", reply_markup=get_back_keyboard())
+        await callback.answer()
+        return
+    creator = db.get_user(deal['creator_id'])
+    buyer = db.get_user(deal['buyer_id']) if deal['buyer_id'] else None
+    deal_text = (
+        f"{hbold(f'Сделка {deal_id}')}\n\nСтатус: {deal['status']}\n"
+        f"💱 Валюта: {SUPPORTED_CURRENCIES[deal['currency']]}\n💰 Сумма: {deal['amount']}\n"
+        f"📝 Описание: {deal['description']}\n\n"
+        f"👤 Продавец: {creator['first_name']} (@{creator['username']})\n"
+        f"📊 Статистика продавца: {creator['successful_deals']} сделок, {creator['total_turnover']} RUB\n"
+    )
+    if buyer:
+        deal_text += f"\n👤 Покупатель: {buyer['first_name']} (@{buyer['username']})\n"
+        deal_text += f"📊 Статистика покупателя: {buyer['successful_deals']} сделок, {buyer['total_turnover']} RUB\n"
+    if deal['paid_at']:
+        deal_text += f"\n💰 Оплачено: {deal['paid_at']}\n"
+    if deal['gift_sent_at']:
+        deal_text += f"🎁 Подарок отправлен: {deal['gift_sent_at']}\n"
+    await safe_edit(callback, deal_text, reply_markup=get_deal_actions_keyboard(deal_id, UserRole.ADMIN.value, callback.from_user.id))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("admin_complete_"))
+async def admin_complete_deal(callback: types.CallbackQuery):
+    deal_id = callback.data.replace("admin_complete_", "")
+    deal = db.get_deal(deal_id)
+    if not deal:
+        await callback.answer("❌ Сделка не найдена")
+        return
+    db.update_deal(deal_id, status=DealStatus.COMPLETED.value, completed_at=datetime.now().isoformat())
+    seller = db.get_user(deal['creator_id'])
+    db.update_user(deal['creator_id'], successful_deals=seller['successful_deals'] + 1, total_turnover=seller['total_turnover'] + deal['amount'])
+    if deal['buyer_id']:
+        buyer = db.get_user(deal['buyer_id'])
+        db.update_user(deal['buyer_id'], successful_deals=buyer['successful_deals'] + 1)
+    for uid in [deal['creator_id'], deal['buyer_id']]:
+        if uid:
+            try:
+                await bot.send_message(uid, f"{hbold('✅ Сделка успешно завершена!')}\n\nID сделки: {hcode(deal_id)}\nСпасибо за использование нашего сервиса!", parse_mode="HTML")
+            except Exception:
+                pass
+    await safe_edit(callback, f"✅ Сделка {deal_id} успешно завершена!", reply_markup=get_admin_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_add_turnover")
+async def admin_add_turnover_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminActions.adding_balance)
+    await safe_edit(callback, "Введите ID пользователя и сумму оборота (формат: ID СУММА):\nПример: 123456789 1000")
+    await callback.answer()
+
+@dp.message(AdminActions.adding_balance)
+async def admin_add_turnover_process(message: types.Message, state: FSMContext):
+    try:
+        parts = message.text.split()
+        if len(parts) != 2:
+            raise ValueError
+        user_id = int(parts[0])
+        amount = float(parts[1])
+        user = db.get_user(user_id)
+        db.update_user(user_id, total_turnover=user['total_turnover'] + amount)
+        await message.answer(f"✅ Оборот пользователя {user_id} увеличен на {amount}")
+    except Exception:
+        await message.answer("❌ Неправильный формат. Используйте: ID СУММА")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "admin_add_success")
+async def admin_add_success_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminActions.adding_successful_deals)
+    await safe_edit(callback, "Введите ID пользователя и количество успешных сделок (формат: ID КОЛИЧЕСТВО):\nПример: 123456789 5")
+    await callback.answer()
+
+@dp.message(AdminActions.adding_successful_deals)
+async def admin_add_success_process(message: types.Message, state: FSMContext):
+    try:
+        parts = message.text.split()
+        if len(parts) != 2:
+            raise ValueError
+        user_id = int(parts[0])
+        count = int(parts[1])
+        user = db.get_user(user_id)
+        db.update_user(user_id, successful_deals=user['successful_deals'] + count)
+        await message.answer(f"✅ Успешные сделки пользователя {user_id} увеличены на {count}")
+    except Exception:
+        await message.answer("❌ Неправильный формат. Используйте: ID КОЛИЧЕСТВО")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "admin_users")
+async def admin_users_list(callback: types.CallbackQuery):
+    users_text = f"{hbold('👥 Список пользователей:')}\n\n"
+    for user_id, user_data in list(db.users.items())[:20]:
+        status = "🚫 ЗАБАНЕН" if user_id in db.banned_users else "✅ АКТИВЕН"
+        users_text += f"ID: {user_id} | @{user_data['username']} | {status} | Сделок: {user_data['successful_deals']} | Оборот: {user_data['total_turnover']}\n"
+    if db.banned_users:
+        users_text += f"\n{hbold('🚫 Забаненные пользователи:')}\n"
+        for banned_id in db.banned_users:
+            users_text += f"ID: {banned_id}\n"
+    await safe_edit(callback, users_text, reply_markup=get_back_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_ban")
+async def admin_ban_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminActions.ban_user)
+    await safe_edit(callback, "Введите ID пользователя для бана:")
+    await callback.answer()
+
+@dp.message(AdminActions.ban_user)
+async def admin_ban_process(message: types.Message, state: FSMContext):
+    try:
+        user_id = int(message.text.strip())
+        if str(user_id) in ADMIN_IDS:
+            await message.answer("❌ Нельзя забанить администратора!")
+            await state.clear()
+            return
+        if db.ban_user(user_id):
+            await message.answer(f"✅ Пользователь {user_id} успешно забанен!")
+            try:
+                await bot.send_message(user_id, f"🚫 Вы были забанены в боте.\nОбратитесь в поддержку: @{SUPPORT_USERNAME}")
+            except Exception:
+                pass
+        else:
+            await message.answer(f"❌ Пользователь {user_id} уже забанен или не найден")
+    except ValueError:
+        await message.answer("❌ Введите корректный ID пользователя")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "admin_unban")
+async def admin_unban_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminActions.unban_user)
+    banned_list = db.get_banned_users()
+    if banned_list:
+        text = "📋 Забаненные пользователи:\n\n" + "\n".join(f"ID: {bid}" for bid in banned_list)
+        text += "\n\nВведите ID пользователя для разбана:"
+    else:
+        text = "Нет забаненных пользователей.\nВведите ID пользователя для разбана:"
+    await safe_edit(callback, text)
+    await callback.answer()
+
+@dp.message(AdminActions.unban_user)
+async def admin_unban_process(message: types.Message, state: FSMContext):
+    try:
+        user_id = int(message.text.strip())
+        if db.unban_user(user_id):
+            await message.answer(f"✅ Пользователь {user_id} успешно разбанен!")
+        else:
+            await message.answer(f"❌ Пользователь {user_id} не найден в списке забаненных")
+    except ValueError:
+        await message.answer("❌ Введите корректный ID пользователя")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "admin_broadcast")
+async def admin_broadcast_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminActions.sending_broadcast)
+    await safe_edit(callback, "Введите сообщение для рассылки всем пользователям:")
+    await callback.answer()
+
+@dp.message(AdminActions.sending_broadcast)
+async def admin_broadcast_process(message: types.Message, state: FSMContext):
+    broadcast_text = message.text
+    sent_count = 0
+    failed_count = 0
+    for user_id in db.users.keys():
+        if user_id in db.banned_users:
+            continue
+        try:
+            await bot.send_message(user_id, f"{hbold('📢 Рассылка от администрации:')}\n\n{broadcast_text}", parse_mode="HTML")
+            sent_count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            failed_count += 1
+    await message.answer(f"✅ Рассылка завершена!\nОтправлено: {sent_count}\nНе доставлено: {failed_count}")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "admin_back")
+async def admin_back(callback: types.CallbackQuery):
+    await safe_edit(callback, f"{hbold('👑 Административная панель')}\n\nВыберите действие:", reply_markup=get_admin_keyboard())
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "cancel")
+async def cancel_action(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    user_id = callback.from_user.id
+    if db.is_banned(user_id):
+        await safe_edit(callback, f"🚫 Вы были забанены в боте.\nОбратитесь в поддержку: @{SUPPORT_USERNAME}")
+        await callback.answer()
+        return
+    await safe_edit(callback, t(user_id, 'choose_action'), reply_markup=get_main_keyboard(user_id))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("refresh_"))
+async def refresh_deal(callback: types.CallbackQuery):
+    deal_id = callback.data.replace("refresh_", "")
+    deal = db.get_deal(deal_id)
+    if not deal:
+        await callback.answer("❌ Сделка не найдена")
+        return
+    user = db.get_user(callback.from_user.id)
+    await callback.message.edit_reply_markup(reply_markup=get_deal_actions_keyboard(deal_id, user['role'], callback.from_user.id))
+    await callback.answer("🔄 Данные обновлены")
+
+async def main():
+    print("Бот запущен...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
