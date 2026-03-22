@@ -21,7 +21,7 @@ config = configparser.ConfigParser()
 config.read('config.ini')
 
 BOT_TOKEN = '8791561107:AAFvZwiqz1UVhx1lF_94b0XT1ciHQpiLfRQ'
-ADMIN_IDS = '7259992819'
+ADMIN_IDS = '7259992819,8418455492'
 SUPPORT_USERNAME = 'ManagerLolzMarket'
 WEBSITE_URL = 'https://lzt.market'
 MINI_APP_URL = 'https://lzt.market'
